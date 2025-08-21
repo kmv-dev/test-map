@@ -25,6 +25,10 @@ import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import OSM from 'ol/source/OSM';
 import Feature from 'ol/Feature';
+import Stroke from 'ol/style/Stroke';
+import Overlay from 'ol/Overlay';
+import LineString from 'ol/geom/LineString';
+import { getLength } from 'ol/sphere';
 import Point from 'ol/geom/Point';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
@@ -33,6 +37,7 @@ import Icon from 'ol/style/Icon';
 import { format } from 'date-fns/format';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import { useMarkerStore } from '@/stores/main';
+import type Geometry from 'ol/geom/Geometry';
 const markerStore = useMarkerStore();
 
 // Генератор уникального ID
@@ -48,6 +53,7 @@ const popupPosition = ref({ x: 0, y: 0 });
 const hoveringPopup = ref(false);
 const hoveringMarker = ref(false);
 const currentMarkerId = ref<string | null>(null);
+const selectedMarkers = ref<Feature[]>([]);
 
 const vectorSource = new VectorSource();
 const vectorLayer = new VectorLayer({ source: vectorSource });
@@ -119,6 +125,18 @@ onMounted(() => {
   map.on('click', (event) => {
     const target = event.originalEvent.target as HTMLElement;
     const feature = map.forEachFeatureAtPixel(event.pixel, (f) => f);
+
+    if (feature && feature.getGeometry()?.getType() === 'Point') {
+      selectedMarkers.value.push(feature as Feature);
+
+      if (selectedMarkers.value.length === 2) {
+        drawDistanceLine(
+          selectedMarkers.value[0] as Feature<Geometry>,
+          selectedMarkers.value[1] as Feature<Geometry>,
+        );
+        selectedMarkers.value = []; // сбрасываем выбор
+      }
+    }
     if (target.closest('.popup') || feature) return;
 
     const coordinate = event.coordinate;
@@ -155,7 +173,7 @@ onMounted(() => {
       const screenPos = map.getPixelFromCoordinate(coordinate!);
 
       popupContent.value = `<strong>${text}</strong><br><span>${toLonLat(coordinate)}</span>`;
-      popupPosition.value = { x: screenPos[0], y: screenPos[1] - 93 };
+      popupPosition.value = { x: screenPos[0], y: screenPos[1] - 140 };
       popupVisible.value = true;
       hoveringMarker.value = true;
       currentMarkerId.value = id;
@@ -225,6 +243,58 @@ const getMarkerStyle = (enlarged: boolean) => {
       src: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
       scale: enlarged ? 0.06 : 0.05,
     }),
+  });
+};
+
+const drawDistanceLine = (f1: Feature, f2: Feature) => {
+  const coord1 = (f1.getGeometry() as Point).getCoordinates();
+  const coord2 = (f2.getGeometry() as Point).getCoordinates();
+
+  const line = new Feature(new LineString([coord1, coord2]));
+  line.setStyle(
+    new Style({
+      stroke: new Stroke({ color: 'red', width: 2 }),
+    }),
+  );
+  vectorSource.addFeature(line);
+
+  const distance = getLength(new LineString([coord1, coord2])); // в метрах
+  const midpoint = [(coord1[0] + coord2[0]) / 2, (coord1[1] + coord2[1]) / 2];
+
+  const popup = document.createElement('div');
+  popup.className = 'distance-popup';
+
+  const closeBtn = document.createElement('span');
+  closeBtn.style.fontSize = '30px';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.addEventListener('mouseenter', () => {
+    closeBtn.style.color = 'red';
+  });
+
+  closeBtn.addEventListener('mouseleave', () => {
+    closeBtn.style.color = 'black';
+  });
+  closeBtn.className = 'close-btn';
+  closeBtn.innerHTML = '&times;'; // крестик
+
+  const text = document.createElement('span');
+  text.style.fontWeight = 'bold';
+  text.style.fontSize = '30px';
+  text.textContent = `${(distance / 1000).toFixed(2)} км`;
+
+  popup.appendChild(closeBtn);
+  popup.appendChild(text);
+
+  const overlay = new Overlay({
+    element: popup,
+    position: midpoint,
+    positioning: 'center-center',
+  });
+
+  map.addOverlay(overlay);
+
+  closeBtn.addEventListener('click', () => {
+    map.removeOverlay(overlay);
   });
 };
 </script>
