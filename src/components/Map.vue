@@ -149,6 +149,8 @@ onMounted(() => {
   // Наведение
   let lastMove = 0;
   map.on('pointermove', (event: any) => {
+    // Этот фрагмент кода c lastMove — это простая защита от слишком частых срабатываний события pointermove на карте.
+    //  Он реализует дебаунсинг, чтобы не перегружать обработчик при быстром перемещении мыши.
     const now = Date.now();
     if (now - lastMove < 50) return;
     lastMove = now;
