@@ -10,7 +10,10 @@
         @mouseleave="hoveringPopup = false"
       >
         <div v-html="popupContent"></div>
-        <Button class="min-w-[120px]" @click="removeMarker">
+        <Button
+          class="min-w-[120px]"
+          @click="(removeMarker(currentMarkerId!), (popupVisible = false))"
+        >
           удалить <i class="pi pi-trash"></i>
         </Button>
       </div>
@@ -20,30 +23,22 @@
 
 <script lang="ts" setup>
 import { ref, onMounted, watch } from 'vue';
-import Map from 'ol/Map';
-import View from 'ol/View';
-import TileLayer from 'ol/layer/Tile';
-import OSM from 'ol/source/OSM';
-import Feature from 'ol/Feature';
-import Stroke from 'ol/style/Stroke';
-import Overlay from 'ol/Overlay';
-import LineString from 'ol/geom/LineString';
-import { getLength } from 'ol/sphere';
-import Point from 'ol/geom/Point';
-import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
-import Style from 'ol/style/Style';
-import Icon from 'ol/style/Icon';
-import { format } from 'date-fns/format';
+import VectorLayer from 'ol/layer/Vector';
+import Feature from 'ol/Feature';
+import Point from 'ol/geom/Point';
+import Map from 'ol/Map';
+import type Geometry from 'ol/geom/Geometry';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import { useMarkerStore } from '@/stores/main';
-import type Geometry from 'ol/geom/Geometry';
-const markerStore = useMarkerStore();
 
-// Генератор уникального ID
-function generateId() {
-  return Math.random().toString(36).substr(2, 9);
-}
+import { useMap } from '@/composables/useMap';
+import { useMarkers } from '@/composables/useMarkers';
+import { useDistance } from '@/composables/useDistance';
+import { getMarkerStyle } from '@/composables/useMarkerStyle';
+import { generateId } from '@/composables/utils';
+
+const markerStore = useMarkerStore();
 
 const mapContainer = ref<HTMLDivElement | null>(null);
 const popup = ref<HTMLDivElement | null>(null);
@@ -58,8 +53,10 @@ const selectedMarkers = ref<Feature[]>([]);
 const vectorSource = new VectorSource();
 const vectorLayer = new VectorLayer({ source: vectorSource });
 
+const { saveMarker, removeMarker } = useMarkers(vectorSource);
 let map: Map;
 
+// Центрирование по выбранному маркеру
 watch(
   () => markerStore.selectedMarker,
   (marker) => {
@@ -73,6 +70,7 @@ watch(
   },
 );
 
+// Слежение за удалением маркеров
 watch(
   () => markerStore.markers.slice(), // slice() чтобы отслеживать изменения массива
   (newMarkers, oldMarkers) => {
@@ -94,16 +92,8 @@ watch(
 
 onMounted(() => {
   if (!mapContainer.value) return;
-
-  map = new Map({
-    target: mapContainer.value,
-    layers: [new TileLayer({ source: new OSM() }), vectorLayer],
-    view: new View({
-      center: fromLonLat([84.9552, 56.4879]),
-      zoom: 12,
-    }),
-    controls: [],
-  });
+  map = useMap(mapContainer.value, vectorLayer);
+  const { drawDistanceLine } = useDistance(map, vectorSource);
 
   // Загрузка маркеров из localStorage
   const stored = localStorage.getItem('markers');
@@ -121,22 +111,22 @@ onMounted(() => {
     });
   }
 
-  // Добавление маркера
-  map.on('click', (event) => {
+  // Клик по карте
+  map.on('click', (event: any) => {
     const target = event.originalEvent.target as HTMLElement;
-    const feature = map.forEachFeatureAtPixel(event.pixel, (f) => f);
+    const feature = map.forEachFeatureAtPixel(event.pixel, (f: any) => f);
 
     if (feature && feature.getGeometry()?.getType() === 'Point') {
       selectedMarkers.value.push(feature as Feature);
-
       if (selectedMarkers.value.length === 2) {
         drawDistanceLine(
           selectedMarkers.value[0] as Feature<Geometry>,
           selectedMarkers.value[1] as Feature<Geometry>,
         );
-        selectedMarkers.value = []; // сбрасываем выбор
+        selectedMarkers.value = [];
       }
     }
+
     if (target.closest('.popup') || feature) return;
 
     const coordinate = event.coordinate;
@@ -148,7 +138,7 @@ onMounted(() => {
       geometry: new Point(coordinate),
       text,
       id,
-      createdAt: format(new Date(), 'dd.MM.yyyy HH:mm'),
+      createdAt: new Date().toLocaleString(),
     });
 
     marker.setStyle(getMarkerStyle(false));
@@ -158,26 +148,26 @@ onMounted(() => {
 
   // Наведение
   let lastMove = 0;
-  map.on('pointermove', (event) => {
+  map.on('pointermove', (event: any) => {
     const now = Date.now();
     if (now - lastMove < 50) return;
     lastMove = now;
 
     const pixel = event.pixel;
-    const feature = map.forEachFeatureAtPixel(pixel, (f) => f);
+    const feature = map.forEachFeatureAtPixel(pixel, (f: any) => f);
 
     if (feature) {
       const text = feature.get('text');
       const id = feature.get('id');
       const coordinate = (feature.getGeometry() as Point).getCoordinates();
-      const screenPos = map.getPixelFromCoordinate(coordinate!);
+      const screenPos = map.getPixelFromCoordinate(coordinate);
 
       popupContent.value = `<strong>${text}</strong><br><span>${toLonLat(coordinate)}</span>`;
       popupPosition.value = { x: screenPos[0], y: screenPos[1] - 140 };
       popupVisible.value = true;
       hoveringMarker.value = true;
       currentMarkerId.value = id;
-      (feature as Feature).setStyle(getMarkerStyle(true));
+      feature.setStyle(getMarkerStyle(true));
     } else {
       hoveringMarker.value = false;
       setTimeout(() => {
@@ -192,40 +182,6 @@ onMounted(() => {
   });
 });
 
-// Сохранение маркера
-const saveMarker = (feature: Feature) => {
-  const stored = localStorage.getItem('markers');
-  const markers = stored ? JSON.parse(stored) : [];
-  markers.push({
-    id: feature.get('id'),
-    text: feature.get('text'),
-    createdAt: feature.get('createdAt'),
-    coordinates: toLonLat((feature.getGeometry() as Point).getCoordinates()),
-  });
-  localStorage.setItem('markers', JSON.stringify(markers));
-  let Marker = {
-    id: feature.get('id'),
-    text: feature.get('text'),
-    createdAt: feature.get('createdAt'),
-    coordinates: toLonLat((feature.getGeometry() as Point).getCoordinates()),
-  };
-  markerStore.addMarker(Marker);
-};
-
-// Удаление маркера
-const removeMarker = () => {
-  if (!currentMarkerId.value) return;
-  const features = vectorSource.getFeatures();
-  const featureToRemove = features.find((f) => f.get('id') === currentMarkerId.value);
-  if (featureToRemove) {
-    vectorSource.removeFeature(featureToRemove);
-    cleanStorage(currentMarkerId.value);
-    popupVisible.value = false;
-    currentMarkerId.value = null;
-  }
-};
-
-// Очистка локалстор
 const cleanStorage = (id: string) => {
   const stored = localStorage.getItem('markers');
   if (stored) {
@@ -234,68 +190,6 @@ const cleanStorage = (id: string) => {
     localStorage.setItem('markers', JSON.stringify(updated));
     markerStore.removeMarker(id);
   }
-};
-
-// Стиль маркера
-const getMarkerStyle = (enlarged: boolean) => {
-  return new Style({
-    image: new Icon({
-      src: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
-      scale: enlarged ? 0.06 : 0.05,
-    }),
-  });
-};
-
-const drawDistanceLine = (f1: Feature, f2: Feature) => {
-  const coord1 = (f1.getGeometry() as Point).getCoordinates();
-  const coord2 = (f2.getGeometry() as Point).getCoordinates();
-
-  const line = new Feature(new LineString([coord1, coord2]));
-  line.setStyle(
-    new Style({
-      stroke: new Stroke({ color: 'red', width: 2 }),
-    }),
-  );
-  vectorSource.addFeature(line);
-
-  const distance = getLength(new LineString([coord1, coord2])); // в метрах
-  const midpoint = [(coord1[0] + coord2[0]) / 2, (coord1[1] + coord2[1]) / 2];
-
-  const popup = document.createElement('div');
-  popup.className = 'distance-popup';
-
-  const closeBtn = document.createElement('span');
-  closeBtn.style.fontSize = '30px';
-  closeBtn.style.cursor = 'pointer';
-  closeBtn.addEventListener('mouseenter', () => {
-    closeBtn.style.color = 'red';
-  });
-
-  closeBtn.addEventListener('mouseleave', () => {
-    closeBtn.style.color = 'black';
-  });
-  closeBtn.className = 'close-btn';
-  closeBtn.innerHTML = '&times;'; // крестик
-
-  const text = document.createElement('span');
-  text.style.fontWeight = 'bold';
-  text.style.fontSize = '30px';
-  text.textContent = `${(distance / 1000).toFixed(2)} км`;
-
-  popup.appendChild(closeBtn);
-  popup.appendChild(text);
-
-  const overlay = new Overlay({
-    element: popup,
-    position: midpoint,
-    positioning: 'center-center',
-  });
-
-  map.addOverlay(overlay);
-
-  closeBtn.addEventListener('click', () => {
-    map.removeOverlay(overlay);
-  });
 };
 </script>
 
