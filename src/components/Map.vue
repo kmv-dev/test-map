@@ -154,7 +154,7 @@ onMounted(() => {
       const coordinate = (feature.getGeometry() as Point).getCoordinates();
       const screenPos = map.getPixelFromCoordinate(coordinate!);
 
-      popupContent.value = `<strong>${text}</strong>`;
+      popupContent.value = `<strong>${text}</strong><br><span>${toLonLat(coordinate)}</span>`;
       popupPosition.value = { x: screenPos[0], y: screenPos[1] - 93 };
       popupVisible.value = true;
       hoveringMarker.value = true;
