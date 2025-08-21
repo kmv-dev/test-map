@@ -5,8 +5,8 @@ import Map from '@/components/Map.vue'
 
 <template>
   <main class="w-full flex justyfy-center gap-[20px]">
-    <Sidebar />
-    <div class="h-[100vh] w-full">
+    <Sidebar class="w-[30%]" />
+    <div class="h-[100vh] w-[70%]">
       <Map></Map>
     </div>
   </main>

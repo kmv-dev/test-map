@@ -19,7 +19,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import Map from 'ol/Map'
 import View from 'ol/View'
 import TileLayer from 'ol/layer/Tile'
@@ -30,7 +30,10 @@ import VectorLayer from 'ol/layer/Vector'
 import VectorSource from 'ol/source/Vector'
 import Style from 'ol/style/Style'
 import Icon from 'ol/style/Icon'
+import format from 'date-fns/format'
 import { fromLonLat, toLonLat } from 'ol/proj'
+import { useMarkerStore } from '@/stores/main'
+const markerStore = useMarkerStore()
 
 // Генератор уникального ID
 function generateId() {
@@ -50,6 +53,39 @@ const vectorSource = new VectorSource()
 const vectorLayer = new VectorLayer({ source: vectorSource })
 
 let map: Map
+
+watch(
+  () => markerStore.selectedMarker,
+  (marker) => {
+    if (marker && map) {
+      map.getView().animate({
+        center: fromLonLat(marker.coordinates),
+        zoom: 14,
+        duration: 1000,
+      })
+    }
+  },
+)
+
+watch(
+  () => markerStore.markers.slice(), // slice() чтобы отслеживать изменения массива
+  (newMarkers, oldMarkers) => {
+    const oldIds = oldMarkers.map((m) => m.id)
+    const newIds = newMarkers.map((m) => m.id)
+
+    const removedIds = oldIds.filter((id: string) => !newIds.includes(id))
+
+    removedIds.forEach((id: string) => {
+      const feature = vectorSource.getFeatures().find((f) => f.get('id') === id)
+      if (feature) {
+        cleanStorage(id)
+        console.log(id)
+        vectorSource.removeFeature(feature)
+      }
+    })
+  },
+  { deep: true },
+)
 
 onMounted(() => {
   if (!mapContainer.value) return
@@ -73,6 +109,7 @@ onMounted(() => {
         geometry: new Point(fromLonLat(m.coordinates)),
         text: m.text,
         id: m.id,
+        createdAt: m.createdAt,
       })
       feature.setStyle(getMarkerStyle(false))
       vectorSource.addFeature(feature)
@@ -94,6 +131,7 @@ onMounted(() => {
       geometry: new Point(coordinate),
       text,
       id,
+      createdAt: format(new Date(), 'dd.MM.yyyy HH:mm'),
     })
 
     marker.setStyle(getMarkerStyle(false))
@@ -145,9 +183,17 @@ const saveMarker = (feature: Feature) => {
   markers.push({
     id: feature.get('id'),
     text: feature.get('text'),
+    createdAt: feature.get('createdAt'),
     coordinates: toLonLat(feature.getGeometry()!.getCoordinates()),
   })
   localStorage.setItem('markers', JSON.stringify(markers))
+  let Marker = {
+    id: feature.get('id'),
+    text: feature.get('text'),
+    createdAt: feature.get('createdAt'),
+    coordinates: toLonLat(feature.getGeometry()!.getCoordinates()),
+  }
+  markerStore.addMarker(Marker)
 }
 
 // Удаление маркера
@@ -157,16 +203,20 @@ const removeMarker = () => {
   const featureToRemove = features.find((f) => f.get('id') === currentMarkerId.value)
   if (featureToRemove) {
     vectorSource.removeFeature(featureToRemove)
-
-    const stored = localStorage.getItem('markers')
-    if (stored) {
-      const markers = JSON.parse(stored)
-      const updated = markers.filter((m: any) => m.id !== currentMarkerId.value)
-      localStorage.setItem('markers', JSON.stringify(updated))
-    }
-
+    cleanStorage(currentMarkerId.value)
     popupVisible.value = false
     currentMarkerId.value = null
+  }
+}
+
+// Очистка локалстор
+const cleanStorage = (id) => {
+  const stored = localStorage.getItem('markers')
+  if (stored) {
+    const markers = JSON.parse(stored)
+    const updated = markers.filter((m: any) => m.id !== id)
+    localStorage.setItem('markers', JSON.stringify(updated))
+    markerStore.removeMarker(id)
   }
 }
 
