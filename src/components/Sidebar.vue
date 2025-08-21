@@ -1,25 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
-import InputText from 'primevue/inputtext'
-import { useMarkerStore } from '@/stores/main'
-import Panel from 'primevue/panel'
-const markerStore = useMarkerStore()
-const isSearchLoading = ref(false)
-const searchData = ref(null)
+import { onMounted, ref } from 'vue';
+import IconField from 'primevue/iconfield';
+import InputIcon from 'primevue/inputicon';
+import InputText from 'primevue/inputtext';
+import { useMarkerStore } from '@/stores/main';
+import Panel from 'primevue/panel';
+const markerStore = useMarkerStore();
+const isSearchLoading = ref(false);
+const searchData = ref(null);
 type Marker = {
-  id: string
-  text: string
-  coordinates: [number, number]
-}
-const markers = ref<Marker[]>([])
+  id: string;
+  text: string;
+  coordinates: [number, number];
+};
+const markers = ref<Marker[]>([]);
 
-onMounted(() => {})
+onMounted(() => {});
 
-const toggle = (event) => {
-  menu.value.toggle(event)
-}
+const toggle = (event: object) => {
+  toggle(event);
+};
 </script>
 
 <template>
