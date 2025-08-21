@@ -21,7 +21,7 @@ export function useMarkers(vectorSource: any) {
   };
 
   const removeMarker = (id: string) => {
-    const feature = vectorSource.getFeatures().find((f) => f.get('id') === id);
+    const feature = vectorSource.getFeatures().find((f: Feature) => f.get('id'));
     if (feature) vectorSource.removeFeature(feature);
 
     const stored = localStorage.getItem('markers');
